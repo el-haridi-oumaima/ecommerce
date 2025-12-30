@@ -1,0 +1,49 @@
+{
+  "contractName": "EcommerceStore",
+  "abi": [
+    {
+      "inputs": [],
+      "stateMutability": "nonpayable",
+      "type": "constructor"
+    },
+    {
+      "inputs": [],
+      "name": "getAllProducts",
+      "outputs": [
+        {
+          "components": [
+            { "internalType": "uint256", "name": "id", "type": "uint256" },
+            { "internalType": "string", "name": "name", "type": "string" },
+            { "internalType": "string", "name": "description", "type": "string" },
+            { "internalType": "uint256", "name": "price", "type": "uint256" },
+            { "internalType": "uint256", "name": "stock", "type": "uint256" },
+            { "internalType": "address payable", "name": "seller", "type": "address" },
+            { "internalType": "bool", "name": "isActive", "type": "bool" },
+            { "internalType": "string", "name": "imageUrl", "type": "string" }
+          ],
+          "internalType": "struct EcommerceStore.Product[]",
+          "name": "",
+          "type": "tuple[]"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function",
+      "constant": true
+    },
+    {
+      "inputs": [
+        { "internalType": "uint256", "name": "_productId", "type": "uint256" },
+        { "internalType": "uint256", "name": "_quantity", "type": "uint256" }
+      ],
+      "name": "createOrder",
+      "outputs": [],
+      "stateMutability": "payable",
+      "type": "function"
+    }
+  ],
+  "networks": {
+    "5777": {
+      "address": "0x93B3de7654bCa8aA51748D1D28Bf67F86848A9C8"
+    }
+  }
+}
