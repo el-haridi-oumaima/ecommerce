@@ -73,9 +73,23 @@ contract EcommerceStore {
     }
     
     constructor() {
-        admin = msg.sender;
-        users[admin] = User(admin, "Admin", UserRole.Admin, true);
-    }
+    admin = msg.sender;
+    // On enregistre l'admin aussi comme vendeur pour le test
+    users[admin] = User(admin, "Admin", UserRole.Admin, true);
+    
+    // Ajout d'un produit initial pour que React trouve quelque chose
+    productCounter++;
+    products[productCounter] = Product(
+        productCounter,
+        "Livre Blockchain",
+        "Apprendre Solidity",
+        0.1 ether,
+        100,
+        payable(admin),
+        true,
+        "https://via.placeholder.com/150"
+    );
+}
     
     // User Management
     function registerUser(string memory _name, UserRole _role) public {
