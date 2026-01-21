@@ -9,6 +9,9 @@ contract EcommerceStore {
         string name;
         UserRole role;
         bool isRegistered;
+        uint256 createdAt;
+        uint256 totalPurchases;
+        uint256 totalEarnings;
     }
     
     struct Product {
@@ -20,6 +23,10 @@ contract EcommerceStore {
         address payable seller;
         bool isActive;
         string imageUrl;
+        uint256 createdAt;
+        uint256 totalSales;
+        uint256 rating;
+        uint256 totalReviews;
     }
     
     struct Order {
@@ -31,6 +38,20 @@ contract EcommerceStore {
         uint256 totalPrice;
         OrderStatus status;
         uint256 timestamp;
+        bool isReviewed;
+    }
+    
+    struct CartItem {
+        uint256 productId;
+        uint256 quantity;
+    }
+    
+    struct Review {
+        uint256 productId;
+        address reviewer;
+        uint256 rating;
+        string comment;
+        uint256 timestamp;
     }
     
     // Enums
@@ -41,12 +62,16 @@ contract EcommerceStore {
     address public admin;
     uint256 public productCounter;
     uint256 public orderCounter;
+    uint256 public totalTransactionVolume;
     
     mapping(address => User) public users;
     mapping(uint256 => Product) public products;
     mapping(uint256 => Order) public orders;
     mapping(address => uint256[]) public userOrders;
     mapping(address => uint256[]) public sellerProducts;
+    mapping(address => CartItem[]) public userCart;
+    mapping(address => uint256[]) public userPurchaseHistory;
+    mapping(uint256 => Review[]) public productReviews;
     
     // Events
     event UserRegistered(address indexed userAddress, string name, UserRole role);
@@ -55,6 +80,11 @@ contract EcommerceStore {
     event OrderCreated(uint256 indexed orderId, uint256 indexed productId, address indexed buyer, uint256 quantity);
     event OrderStatusUpdated(uint256 indexed orderId, OrderStatus status);
     event PaymentReceived(address indexed from, uint256 amount);
+    event CartItemAdded(address indexed user, uint256 productId, uint256 quantity);
+    event CartItemRemoved(address indexed user, uint256 productId);
+    event CartCleared(address indexed user);
+    event ReviewAdded(uint256 indexed productId, address indexed reviewer, uint256 rating);
+    event OrderCancelled(uint256 indexed orderId);
     
     // Modifiers
     modifier onlyAdmin() {
@@ -73,30 +103,42 @@ contract EcommerceStore {
     }
     
     constructor() {
-    admin = msg.sender;
-    // On enregistre l'admin aussi comme vendeur pour le test
-    users[admin] = User(admin, "Admin", UserRole.Admin, true);
-    
-    // Ajout d'un produit initial pour que React trouve quelque chose
-    productCounter++;
-    products[productCounter] = Product(
-        productCounter,
-        "Livre Blockchain",
-        "Apprendre Solidity",
-        0.1 ether,
-        100,
-        payable(admin),
-        true,
-        "https://via.placeholder.com/150"
-    );
-}
+        admin = msg.sender;
+        users[admin] = User(admin, "Admin", UserRole.Admin, true, block.timestamp, 0, 0);
+        
+        // Ajout d'un produit initial
+        productCounter++;
+        products[productCounter] = Product(
+            productCounter,
+            "Livre Blockchain",
+            "Apprendre Solidity et la blockchain",
+            0.1 ether,
+            100,
+            payable(admin),
+            true,
+            "https://via.placeholder.com/150",
+            block.timestamp,
+            0,
+            0,
+            0
+        );
+        sellerProducts[admin].push(productCounter);
+    }
     
     // User Management
     function registerUser(string memory _name, UserRole _role) public {
         require(!users[msg.sender].isRegistered, "User already registered");
         require(_role != UserRole.Admin, "Cannot register as admin");
         
-        users[msg.sender] = User(msg.sender, _name, _role, true);
+        users[msg.sender] = User(
+            msg.sender,
+            _name,
+            _role,
+            true,
+            block.timestamp,
+            0,
+            0
+        );
         emit UserRegistered(msg.sender, _name, _role);
     }
     
@@ -124,7 +166,11 @@ contract EcommerceStore {
             _stock,
             payable(msg.sender),
             true,
-            _imageUrl
+            _imageUrl,
+            block.timestamp,
+            0,
+            0,
+            0
         );
         
         sellerProducts[msg.sender].push(productCounter);
@@ -178,6 +224,7 @@ contract EcommerceStore {
     // Order Management
     function createOrder(uint256 _productId, uint256 _quantity) public payable onlyRegistered {
         Product storage product = products[_productId];
+        User storage user = users[msg.sender];
         
         require(product.isActive, "Product is not active");
         require(product.stock >= _quantity, "Insufficient stock");
@@ -188,6 +235,7 @@ contract EcommerceStore {
         
         // Update stock
         product.stock -= _quantity;
+        product.totalSales += _quantity;
         
         // Create order
         orderCounter++;
@@ -199,10 +247,17 @@ contract EcommerceStore {
             _quantity,
             totalPrice,
             OrderStatus.Pending,
-            block.timestamp
+            block.timestamp,
+            false
         );
         
         userOrders[msg.sender].push(orderCounter);
+        userPurchaseHistory[msg.sender].push(orderCounter);
+        user.totalPurchases += totalPrice;
+        
+        // Update seller earnings
+        User storage seller = users[product.seller];
+        seller.totalEarnings += totalPrice;
         
         // Transfer payment to seller
         product.seller.transfer(totalPrice);
@@ -211,6 +266,11 @@ contract EcommerceStore {
         if (msg.value > totalPrice) {
             payable(msg.sender).transfer(msg.value - totalPrice);
         }
+        
+        totalTransactionVolume += totalPrice;
+        
+        // Clear cart
+        delete userCart[msg.sender];
         
         emit OrderCreated(orderCounter, _productId, msg.sender, _quantity);
         emit PaymentReceived(msg.sender, totalPrice);
@@ -250,5 +310,107 @@ contract EcommerceStore {
     
     function getTotalOrders() public view returns (uint256) {
         return orderCounter;
+    }
+    
+    // Cart Management
+    function addToCart(uint256 _productId, uint256 _quantity) public onlyRegistered {
+        require(products[_productId].isActive, "Product not active");
+        require(_quantity > 0, "Quantity must be > 0");
+        
+        CartItem[] storage cart = userCart[msg.sender];
+        bool found = false;
+        
+        for (uint i = 0; i < cart.length; i++) {
+            if (cart[i].productId == _productId) {
+                cart[i].quantity += _quantity;
+                found = true;
+                break;
+            }
+        }
+        
+        if (!found) {
+            cart.push(CartItem(_productId, _quantity));
+        }
+        
+        emit CartItemAdded(msg.sender, _productId, _quantity);
+    }
+    
+    function removeFromCart(uint256 _productId) public onlyRegistered {
+        CartItem[] storage cart = userCart[msg.sender];
+        
+        for (uint i = 0; i < cart.length; i++) {
+            if (cart[i].productId == _productId) {
+                cart[i] = cart[cart.length - 1];
+                cart.pop();
+                break;
+            }
+        }
+        
+        emit CartItemRemoved(msg.sender, _productId);
+    }
+    
+    function getCart(address _user) public view returns (CartItem[] memory) {
+        return userCart[_user];
+    }
+    
+    function clearCart() public onlyRegistered {
+        delete userCart[msg.sender];
+        emit CartCleared(msg.sender);
+    }
+    
+    function getCartTotal(address _user) public view returns (uint256) {
+        CartItem[] memory cart = userCart[_user];
+        uint256 total = 0;
+        
+        for (uint i = 0; i < cart.length; i++) {
+            total += products[cart[i].productId].price * cart[i].quantity;
+        }
+        
+        return total;
+    }
+    
+    // Review Management
+    function addReview(uint256 _productId, uint256 _rating, string memory _comment) public onlyRegistered {
+        require(products[_productId].id != 0, "Product does not exist");
+        require(_rating > 0 && _rating <= 5, "Rating must be between 1 and 5");
+        require(bytes(_comment).length > 0, "Comment cannot be empty");
+        
+        // Check if user bought this product
+        bool hasPurchased = false;
+        for (uint i = 0; i < userPurchaseHistory[msg.sender].length; i++) {
+            if (orders[userPurchaseHistory[msg.sender][i]].productId == _productId) {
+                hasPurchased = true;
+                break;
+            }
+        }
+        require(hasPurchased, "You must purchase this product to review it");
+        
+        productReviews[_productId].push(Review(_productId, msg.sender, _rating, _comment, block.timestamp));
+        
+        Product storage product = products[_productId];
+        product.rating = (product.rating + _rating) / 2;
+        product.totalReviews++;
+        
+        emit ReviewAdded(_productId, msg.sender, _rating);
+    }
+    
+    function getProductReviews(uint256 _productId) public view returns (Review[] memory) {
+        return productReviews[_productId];
+    }
+    
+    function cancelOrder(uint256 _orderId) public {
+        Order storage order = orders[_orderId];
+        require(order.buyer == msg.sender || msg.sender == admin, "Not authorized");
+        require(order.status == OrderStatus.Pending, "Cannot cancel delivered order");
+        
+        order.status = OrderStatus.Cancelled;
+        
+        // Refund buyer
+        payable(order.buyer).transfer(order.totalPrice);
+        
+        // Restore stock
+        products[order.productId].stock += order.quantity;
+        
+        emit OrderCancelled(_orderId);
     }
 }
